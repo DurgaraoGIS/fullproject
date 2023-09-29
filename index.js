@@ -115,7 +115,7 @@ app.post('/signup', async (req, res) => {
     const hashedpassword = await bcrypt.hash(password, 10)
     const sql = `select * from users where username='${username}'`
     db.query(sql, async (err, result) => {
-        if (err) return res.send({ message: "error at inside of server" })
+        if (err) return res.send({ message: "error at inside the server" })
         if (result.length !== 0) {
             return res.status(400).send({ message: "username already exists" })
         }
