@@ -36,6 +36,7 @@ const logger = (req, res, next) => {
 
             }
             else {
+                req.username=payload.username
                 next()
 
             }
@@ -62,6 +63,11 @@ app.get('/',logger, (req, res) => {
 
     })
 
+})
+
+app.get('/user',logger,(req,res)=>{
+    let {username}=req
+    res.send(username)
 })
 
 
