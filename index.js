@@ -1,5 +1,5 @@
 import express from 'express'
-import mysql from 'mysql'
+import mysql from 'mysql2/promise'
 import cors from 'cors'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
@@ -11,7 +11,7 @@ app.use(cors())
 app.use(express.json())
 
 
-const db = mysql.createConnection({
+const db = mysql.createPool({
     host: "localhost",
     user: "root",
     password: "Root@123",
@@ -36,7 +36,11 @@ const logger = (req, res, next) => {
 
             }
             else {
-                req.username=payload.username
+                const userdetails={
+                    username:payload.username,
+                    user_id:payload.user_id
+                }
+                req.userdetails=userdetails
                 next()
 
             }
@@ -48,100 +52,110 @@ const logger = (req, res, next) => {
 }
 
 
-app.get('/',logger, (req, res) => {
-    const { orderby = "idproducts", order = "ASC" } = req.query
-    const sql = `select * from products order by ${orderby} ${order}`;
-    db.query(sql, (errror, result) => {
-        if (errror) {
-            res.status(500).json({ message: "Error inside server" });
+app.get('/',logger, async(req, res) => {
+    try{
+        const { orderby = "idproducts", order = "ASC" } = req.query
+        const sql = `select * from products order by ${orderby} ${order}`;
+        const result=await db.execute(sql)
 
-        }
-        else {
-            res.send(result);
+        res.send(result[0])
 
-        }
 
-    })
+    }catch(error){
+        res.status(500).send({ message: "Error inside the server" });
+    }
+    
+    
 
 })
 
-app.get('/user',logger,(req,res)=>{
-    let {username}=req
-    res.send(username)
+app.get('/user',logger,(req,res)=>{    
+    res.send(req.userdetails)
 })
 
 
 
-app.delete('/products/:productId', (req, res) => {
+app.delete('/products/:productId', async(req, res) => {
     const { productId } = req.params
     const sql = `delete from products where idproducts=${productId}`
-    db.query(sql, (err, result) => {
-        if (err) return res.send({ message: "error while deleting " })
-        return res.send(result)
-    })
+    try{
+        const query=db.execute(sql)
+        
+    }catch(error){
+        res.status(500).send({ message: "Error inside the server" });
+
+    }
 })
 
 app.post('/products', (req, res) => {
     const { productname, productprice } = req.body
     const productprices = parseInt(productprice)
+    try{
+        const sql = `INSERT INTO products (name,price) VALUES ('${productname}',${productprices})`
+        const result=db.execute(sql)
+        res.send(result)
 
-    const sql = `INSERT INTO products (name,price) VALUES ('${productname}',${productprices})`
-    db.query(sql, (err, result) => {
-        if (err) return res.send({ message: 'eror' })
-        return res.send(result)
-    })
+
+    }catch(error){
+        res.status(500).send({ message: "Error inside the server" });
+
+    }
+
+    
+    
 })
 app.post('/login', async (req, res) => {
-    const { username, password } = req.body
-    const sql = `select * from users where username='${username}'`
+    const { username, password } = req.body;
+  
+    try {
+      const [rows] = await db.execute(`SELECT * FROM users WHERE username=?`, [username]);
+  
+      if (rows.length === 0) {
+        return res.status(401).send({ message: "Invalid username" });
+      }
+  
+      const userdetails = rows[0];
+      const isPasswordMatched = await bcrypt.compare(password, userdetails.password);
+  
+      if (isPasswordMatched) {
+        const payload = { username: username, user_id: userdetails.id };
+        const jwtToken = jwt.sign(payload, "helloworld");
+        res.send({ jwtToken });
+      } else {
+        res.status(400).json({ message: "Invalid criteria" });
+      }
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({ message: "Error inside the server" });
+    }
+  });
 
-    db.query(sql, async (err, result) => {
-        if (err) return res.send({ message: 'error' })
-        if (result.length === 0) {
-            return res.status(401).send({ message: "Invalid username" })
-        }
-        const userdetails = result[0]
-        const ispasswordmatched = await bcrypt.compare(password, userdetails.password)
-        if (ispasswordmatched === true) {
-            const payload = { username: username,user_id:userdetails.id }
-            const jwtToken = jwt.sign(payload, "helloworld");
-            res.send({ jwtToken })
-        }
-        else {
-            res.status(400).json({ message: "Invalid creiteria" })
-
-        }
-
-
-    })
-})
-
-app.post('/signup', async (req, res) => {
-    const { username, password } = req.body
-    const hashedpassword = await bcrypt.hash(password, 10)
-    const sql = `select * from users where username='${username}'`
-    db.query(sql, async (err, result) => {
-        if (err) return res.send({ message: "error at inside the server" })
-        if (result.length !== 0) {
-            return res.status(400).send({ message: "username already exists" })
-        }
-        db.query(`INSERT INTO users (username,password) VALUES ('${username}','${hashedpassword}')`, (error, finalresult) => {
-            if (error) return res.status(400).send({ message: error })
-            const userId=finalresult.insertId
-            db.query(`INSERT INTO cart (user_id) VALUES('${userId}')`,(e,resultof)=>{
-                if(e) return res.send('error')
-                return res.send(finalresult)
-                
-
-            })
-            
-        })
-
-
-    })
-
-
-})
+  app.post('/signup', async (req, res) => {
+    const { username, password } = req.body;
+  
+    try {
+      const hashedpassword = await bcrypt.hash(password, 10);
+  
+      // Check if username already exists
+      const [rows] = await db.execute(`SELECT * FROM users WHERE username=?`, [username]);
+  
+      if (rows.length !== 0) {
+        return res.status(400).send({ message: "Username already exists" });
+      }
+  
+      // Insert new user
+      const [result] = await db.execute(`INSERT INTO users (username, password) VALUES (?, ?)`, [username, hashedpassword]);
+      const userId = result.insertId;
+  
+      // Insert cart entry for the new user
+      await db.execute(`INSERT INTO cart (user_id) VALUES (?)`, [userId]);
+  
+      res.send({ message: 'User registered successfully', userId });
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({ message: "Error inside the server" });
+    }
+  });
 
 
 
@@ -158,6 +172,55 @@ app.put('/products/:productId', (req, res) => {
     })
 
 })
+app.post('/:userId',async(req,res)=>{
+    const{idproducts,name,price}=req.body
+    const { userId } = req.params
+    const sql=`SELECT * from cart WHERE user_id=${userId}`
+    try{
+        const [cartdetails]=await db.execute(sql)
+        const cart_id=cartdetails[0].idcart
+        try{
+            const sql2='INSERT INTO cartproduct (product_name,product_price,product_id,cart_id) VALUES(?,?,?,?)'
+            const values=[name,price,idproducts,cart_id]
+            const result= await db.execute(sql2,values)
+            try{
+                const [selectquery]=await db.execute('select sum(product_price) as total from cartproduct where cart_id=?',[cart_id])
+                const total=selectquery[0].total
+                try{
+                    const finalresult=await db.execute('UPDATE cart SET total=? WHERE user_id=?',[total,userId])
+                    res.send(result)
+                }catch(error){
+                    res.status(500).send({ message: "Error inside the server at updating of total" });
+
+                }
+
+            }catch(error){
+                res.status(500).send({ message: "Error inside the server at insert of total" });
+
+            }
+
+        }catch(error){
+            res.status(500).send({ message: "Error inside the server at cartproduct insertion" });
+
+        }
+        
+
+    }catch(error){
+        res.status(500).send({ message: "Error inside the server" });
+
+
+    }
+    
+    
+    
+    
+    
+    
+
+
+    
+})
+
 
 
 app.listen(5000, () => {
