@@ -103,7 +103,7 @@ app.post('/login', async (req, res) => {
         const userdetails = result[0]
         const ispasswordmatched = await bcrypt.compare(password, userdetails.password)
         if (ispasswordmatched === true) {
-            const payload = { username: username }
+            const payload = { username: username,user_id:userdetails.id }
             const jwtToken = jwt.sign(payload, "helloworld");
             res.send({ jwtToken })
         }
@@ -127,7 +127,14 @@ app.post('/signup', async (req, res) => {
         }
         db.query(`INSERT INTO users (username,password) VALUES ('${username}','${hashedpassword}')`, (error, finalresult) => {
             if (error) return res.status(400).send({ message: error })
-            return res.send(finalresult)
+            const userId=finalresult.insertId
+            db.query(`INSERT INTO cart (user_id) VALUES('${userId}')`,(e,resultof)=>{
+                if(e) return res.send('error')
+                return res.send(finalresult)
+                
+
+            })
+            
         })
 
 
