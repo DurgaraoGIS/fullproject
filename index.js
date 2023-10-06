@@ -222,6 +222,16 @@ app.post('/:userId',async(req,res)=>{
 })
 
 
+app.get('/cart',async(req,res)=>{
+    try{
+        const sql='select '
+
+    }catch(error){
+
+    }
+})
+
+
 
 app.listen(5000, () => {
     console.log("listening")
